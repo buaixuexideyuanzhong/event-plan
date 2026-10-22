@@ -1,92 +1,108 @@
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
-import HealthBadge from './components/HealthBadge.vue'
-import PlanningInput from './components/PlanningInput.vue'
-import PlanViewer from './components/PlanViewer.vue'
-import LogPanel from './components/LogPanel.vue'
-import ToastHost from './components/ToastHost.vue'
-import { usePlanner } from './composables/usePlanner'
-import { useHealth } from './composables/useHealth'
-import { useToast } from './composables/useToast'
-import { saveCase } from './api/cases'
-import { pickMeta, clipId } from './utils/format'
-import { INPUT_MAX_LENGTH } from './constants'
-
-const planner = usePlanner()
-const { status: plannerStatus, isStreaming, planText, result, errorMsg } = planner
-const { status: healthStatus, health: healthData, refresh: refreshHealth } = useHealth()
-const { toasts, toast, dismiss } = useToast()
-
-const requestText = ref('')
-const saving = ref(false)
-
-async function onSubmit(text) {
-  await planner.start(text)
-}
-
-async function onSave() {
-  const res = result.value
-  if (!res?.success || !res?.plan) return
-  saving.value = true
-  try {
-    const meta = pickMeta(res.requirements)
-    const { case_id } = await saveCase({ plan_text: res.plan, metadata: meta })
-    toast('success', `已保存到案例库：${clipId(case_id)}`)
-  } catch (e) {
-    toast('error', `保存失败：${e?.message || e}`)
-  } finally {
-    saving.value = false
-  }
-}
-
-function onNotify({ type, message }) {
-  toast(type, message)
-}
-
-onBeforeUnmount(() => planner.cancel())
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <div class="app">
-    <header class="app-header">
-      <div class="app-title">
-        <span class="app-logo">🎉</span>
-        <div>
-          <h1>活动策划多智能体系统</h1>
-          <p class="app-subtitle">需求提取 → 场地 / 商家 / 流程并行搜索 → 方案整合</p>
-        </div>
-      </div>
-      <HealthBadge :status="healthStatus" :health="healthData" @refresh="refreshHealth" />
-    </header>
-
-    <main class="app-main">
-      <PlanningInput
-        v-model="requestText"
-        :disabled="isStreaming"
-        :max-length="INPUT_MAX_LENGTH"
-        :api-key-set="healthData?.api_key_set"
-        @submit="onSubmit"
-        @cancel="planner.cancel"
-      />
-
-      <div class="app-columns">
-        <PlanViewer
-          :status="plannerStatus"
-          :plan="planText"
-          :result="result"
-          :error="errorMsg"
-          :saving="saving"
-          @save="onSave"
-          @notify="onNotify"
-        />
-        <LogPanel
-          :messages="result?.messages || []"
-          :errors="result?.errors || []"
-          :running="isStreaming"
-        />
-      </div>
-    </main>
-
-    <ToastHost :toasts="toasts" @dismiss="dismiss" />
-  </div>
+  <RouterView />
 </template>
+
+<style>
+/* 全局样式 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #2c3e50;
+}
+
+/* Markdown 渲染样式 */
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+.md h1 { font-size: 1.8em; }
+.md h2 { font-size: 1.5em; }
+.md h3 { font-size: 1.3em; }
+
+.md p {
+  margin-bottom: 0.8em;
+  line-height: 1.7;
+}
+
+.md ul, .md ol {
+  margin-bottom: 1em;
+  padding-left: 2em;
+}
+
+.md li {
+  margin-bottom: 0.3em;
+  line-height: 1.6;
+}
+
+.md code {
+  background: #f5f7fa;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.md pre {
+  background: #f5f7fa;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+
+.md pre code {
+  background: none;
+  padding: 0;
+}
+
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+.md th, .md td {
+  border: 1px solid #e0e0e0;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.md th {
+  background: #f5f7fa;
+  font-weight: 600;
+}
+
+.md blockquote {
+  border-left: 4px solid #409eff;
+  padding-left: 16px;
+  margin: 1em 0;
+  color: #606266;
+}
+
+.md strong {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.md a {
+  color: #409eff;
+  text-decoration: none;
+}
+
+.md a:hover {
+  text-decoration: underline;
+}
+</style>

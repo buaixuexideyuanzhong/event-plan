@@ -78,7 +78,11 @@ class Config:
     KB_EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"   # 512 维
     KB_EMBEDDING_DIM: int = 512
     # Milvus 向量库
-    MILVUS_URI: str = os.getenv("VECTOR_DB_URL", "http://localhost:19530") or "http://localhost:19530"
+    # 支持两种模式：
+    # 1. HTTP 模式（Docker）: http://localhost:19530
+    # 2. Lite 模式（本地文件）: ./milvus_data.db 或 /path/to/milvus.db
+    MILVUS_URI: str = os.getenv("VECTOR_DB_URL", str(Path(__file__).parents[2] / "milvus_data.db"))
+    MILVUS_LITE_ENABLED: bool = os.getenv("MILVUS_LITE_ENABLED", "true").lower() == "true"
     MILVUS_COLLECTION: str = "activity_cases"
     # 检索参数
     KB_TOP_K: int = 3
