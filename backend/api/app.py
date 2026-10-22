@@ -27,6 +27,7 @@ from ..core.config import Config
 from ..agents.workflow import WORKFLOW_STRUCTURE
 from ..cli.main import ActivityPlanner
 from ..storage.rag_knowledgebase import CaseStore
+from ..storage.conversation import conversation_manager
 
 # 配置日志
 logging.basicConfig(
@@ -54,6 +55,21 @@ class PlanRequest(BaseModel):
             return s
         return value
 
+
+
+
+class ChatMessage(BaseModel):
+    role: str = Field(..., description="Role: user/assistant")
+    content: str = Field(..., description="Message content")
+
+class ChatRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    message: str = Field(..., min_length=1, max_length=2000)
+
+class ChatResponse(BaseModel):
+    conversation_id: str
+    message: ChatMessage
+    plan_updated: bool = False
 
 class CaseCreate(BaseModel):
     """保存案例请求体"""
@@ -305,6 +321,55 @@ async def plan_stream(req: PlanRequest):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+
+
+
+# ==================== Chat API ====================
+
+@v1.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    conv_id = req.conversation_id
+    if not conv_id:
+        conv_id = await conversation_manager.create_conversation()
+    
+    await conversation_manager.add_message(conv_id, "user", req.message)
+    messages = await conversation_manager.get_messages(conv_id, limit=10)
+    
+    conv = await conversation_manager.get_conversation(conv_id)
+    current_plan = conv.get("current_plan") if conv else None
+    
+    planner = get_planner()
+    result = await planner.plan_with_context(
+        req.message, history=messages, current_plan=current_plan, console_output=False
+    )
+    
+    assistant_msg = result.get("plan", "Failed to generate plan")
+    await conversation_manager.add_message(conv_id, "assistant", assistant_msg)
+    
+    if result.get("success"):
+        await conversation_manager.update_current_plan(conv_id, result)
+    
+    result.pop("stream_queue", None)
+    
+    return ChatResponse(
+        conversation_id=conv_id,
+        message=ChatMessage(role="assistant", content=assistant_msg),
+        plan_updated=result.get("success", False)
+    )
+
+
+@v1.get("/chat/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    conv = await conversation_manager.get_conversation(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
+
+
+@v1.delete("/chat/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    await conversation_manager.delete_conversation(conversation_id)
+    return {"deleted": True}
 
 # ==================== 案例知识库接口 ====================
 

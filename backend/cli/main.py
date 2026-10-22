@@ -94,6 +94,58 @@ class ActivityPlanner:
                 "plan": None,
             }
 
+
+    async def plan_with_context(
+        self,
+        user_request: str,
+        history: list = None,
+        current_plan: dict = None,
+        stream_queue: Optional["asyncio.Queue"] = None,
+        console_output: Optional[bool] = None,
+    ) -> dict:
+        """
+        多轮对话：基于上下文的方案修改
+        
+        Args:
+            user_request: 用户的新请求/修改指令
+            history: 对话历史消息列表
+            current_plan: 当前方案
+            stream_queue: SSE 队列
+            console_output: 是否打印到控制台
+            
+        Returns:
+            包含策划结果的字典
+        """
+        logger.info(f"多轮对话请求：{user_request[:50]}...")
+        
+        # 构建带上下文的请求
+        context_parts = []
+        
+        # 添加历史摘要
+        if history and len(history) > 1:
+            context_parts.append("【对话历史】")
+            for msg in history[-4:]:  # 最近 4 条
+                role = "用户" if msg["role"] == "user" else "助手"
+                context_parts.append(f"{role}: {msg['content'][:100]}")
+        
+        # 添加当前方案
+        if current_plan and current_plan.get("plan"):
+            context_parts.append("\n【当前方案】")
+            context_parts.append(current_plan["plan"][:500])
+        
+        # 构建完整请求
+        if context_parts:
+            full_request = "\n".join(context_parts) + f"\n\n【用户新指令】{user_request}"
+        else:
+            full_request = user_request
+        
+        # 调用原有 plan 方法
+        return await self.plan(
+            full_request,
+            stream_queue=stream_queue,
+            console_output=console_output
+        )
+
     def get_workflow_info(self) -> str:
         """获取工作流信息"""
         return self.workflow.get_graph_info()

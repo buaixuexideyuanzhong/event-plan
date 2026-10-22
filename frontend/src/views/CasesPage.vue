@@ -12,6 +12,9 @@ const error = ref('')
 const searchQuery = ref('')
 const selectedCase = ref(null)
 const deleting = ref(false)
+const batchMode = ref(false)
+const selectedIds = ref(new Set())
+const batchDeleting = ref(false)
 
 async function loadCases() {
   loading.value = true
@@ -38,7 +41,37 @@ const filteredCases = computed(() => {
   })
 })
 
+const allSelected = computed(() => {
+  return filteredCases.value.length > 0 && filteredCases.value.every(c => selectedIds.value.has(c.id))
+})
+
+function toggleSelect(id) {
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id)
+  } else {
+    selectedIds.value.add(id)
+  }
+  selectedIds.value = new Set(selectedIds.value)
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value.clear()
+  } else {
+    filteredCases.value.forEach(c => selectedIds.value.add(c.id))
+  }
+  selectedIds.value = new Set(selectedIds.value)
+}
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) {
+    selectedIds.value.clear()
+  }
+}
+
 function viewCase(caseItem) {
+  if (batchMode.value) return
   selectedCase.value = caseItem
 }
 
@@ -59,6 +92,27 @@ async function handleDelete(caseId) {
     alert(`删除失败: ${e.message}`)
   } finally {
     deleting.value = false
+  }
+}
+
+async function handleBatchDelete() {
+  const count = selectedIds.value.size
+  if (count === 0) return
+  if (!confirm(`确定要删除选中的 ${count} 个案例吗？此操作不可恢复。`)) return
+  batchDeleting.value = true
+  try {
+    const idsToDelete = [...selectedIds.value]
+    for (const id of idsToDelete) {
+      await deleteCase(id)
+    }
+    cases.value = cases.value.filter(c => !selectedIds.value.has(c.id))
+    selectedIds.value.clear()
+    batchMode.value = false
+    alert(`成功删除 ${count} 个案例`)
+  } catch (e) {
+    alert(`批量删除失败: ${e.message}`)
+  } finally {
+    batchDeleting.value = false
   }
 }
 
@@ -98,9 +152,35 @@ onMounted(loadCases)
               class="search-input"
             />
           </div>
+          <button class="btn-batch" :class="{ active: batchMode }" @click="toggleBatchMode">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 11 12 14 22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            <span>{{ batchMode ? '取消选择' : '批量管理' }}</span>
+          </button>
         </div>
       </div>
     </header>
+
+    <!-- 批量操作栏 -->
+    <div v-if="batchMode" class="batch-bar">
+      <label class="batch-select-all" @click.stop="toggleSelectAll">
+        <input type="checkbox" :checked="allSelected" @click.stop="toggleSelectAll" />
+        <span>全选</span>
+      </label>
+      <span class="batch-count">已选 {{ selectedIds.size }} 项</span>
+      <button class="btn-batch-delete" :disabled="selectedIds.size === 0 || batchDeleting" @click.stop="handleBatchDelete">
+        <svg v-if="batchDeleting" class="spinner-small" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        </svg>
+        <span>{{ batchDeleting ? '删除中...' : '删除选中' }}</span>
+      </button>
+    </div>
 
     <main class="page-main">
       <div v-if="loading" class="loading-state">
@@ -131,7 +211,18 @@ onMounted(loadCases)
       </div>
       
       <div v-else class="cases-grid">
-        <article v-for="caseItem in filteredCases" :key="caseItem.id" class="case-card">
+        <article v-for="caseItem in filteredCases" :key="caseItem.id" class="case-card" :class="{ selected: selectedIds.has(caseItem.id) }" @click="viewCase(caseItem)">
+          <!-- 批量选择复选框 -->
+          <div v-if="batchMode" class="card-checkbox" @click.stop="toggleSelect(caseItem.id)">
+            <svg v-if="selectedIds.has(caseItem.id)" width="20" height="20" viewBox="0 0 24 24" fill="#3b82f6" stroke="#3b82f6" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <polyline points="9 12 11 14 15 10" fill="none" stroke="white" stroke-width="2.5" />
+            </svg>
+            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+            </svg>
+          </div>
+
           <div class="card-header">
             <div class="card-tags">
               <span v-if="caseItem.activity_type" class="tag tag-type">
@@ -180,10 +271,10 @@ onMounted(loadCases)
               {{ caseItem.created_at ? new Date(caseItem.created_at).toLocaleDateString('zh-CN') : '' }}
             </div>
             <div class="card-actions">
-              <button class="btn-view" @click="viewCase(caseItem)">
+              <button v-if="!batchMode" class="btn-view" @click.stop="viewCase(caseItem)">
                 查看详情
               </button>
-              <button class="btn-delete" :disabled="deleting" @click="handleDelete(caseItem.id)">
+              <button v-if="!batchMode" class="btn-delete" :disabled="deleting" @click.stop="handleDelete(caseItem.id)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="3 6 5 6 21 6" />
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -195,6 +286,7 @@ onMounted(loadCases)
       </div>
     </main>
 
+    <!-- 案例详情弹窗 -->
     <div v-if="selectedCase" class="modal-overlay" @click.self="closeDetail">
       <div class="modal-content">
         <div class="modal-header">
@@ -307,12 +399,16 @@ onMounted(loadCases)
 }
 
 .header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   flex: 1;
-  max-width: 400px;
+  max-width: 500px;
 }
 
 .search-box {
   position: relative;
+  flex: 1;
 }
 
 .search-icon {
@@ -341,10 +437,107 @@ onMounted(loadCases)
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
+.btn-batch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: white;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-batch:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.btn-batch.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+/* 批量操作栏 */
+.batch-bar {
+  max-width: 1400px;
+  margin: 16px auto 0;
+  padding: 12px 24px;
+  background: white;
+  border: 1.5px solid #3b82f6;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.batch-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #475569;
+  user-select: none;
+}
+
+.batch-select-all input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.batch-count {
+  font-size: 14px;
+  color: #64748b;
+  margin-left: 8px;
+}
+
+.btn-batch-delete {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #ef4444;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-batch-delete:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.btn-batch-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinner-small {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .page-main {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 40px 32px;
+  padding: 24px 32px 40px;
 }
 
 .loading-state, .error-state, .empty-state {
@@ -361,10 +554,6 @@ onMounted(loadCases)
   border-top-color: #3b82f6;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .error-state svg {
@@ -393,17 +582,31 @@ onMounted(loadCases)
   background: white;
   border-radius: 16px;
   padding: 24px;
-  border: 1px solid #e2e8f0;
+  border: 2px solid #e2e8f0;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
   cursor: pointer;
+  position: relative;
 }
 
 .case-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.12);
   border-color: #cbd5e1;
+}
+
+.case-card.selected {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.card-checkbox {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  cursor: pointer;
+  z-index: 2;
 }
 
 .card-header {
